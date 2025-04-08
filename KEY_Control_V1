@@ -1,0 +1,254 @@
+#Control for Delta Power Supply for MANDO 
+
+import tkinter as tk
+from tkinter import ttk
+from tkinter import messagebox
+import pyvisa
+import socket
+import time
+import threading
+import os
+import subprocess
+#may need to run the command prompt action: arp -a to find the dynamic address for the device
+#IP_Delta = "169.254.0.2"
+#ip_VNA = "169.254.164.252"
+#ip = "169.254.0.2"
+#port_VNA = 5025
+#PORT_Delta = 8462
+port = "5025"#"8462"
+
+
+def send_scpi_command(ip, port, command):
+    global s
+    """Send an SCPI command over a socket connection."""
+    try:
+        with socket.create_connection((ip, port), timeout=0.1) as s:
+            s.sendall(command.encode() + b'\n')  # Send command with newline
+            response = s.recv(1024).decode().strip()  # Read response
+            if response:
+                print(response)
+            else:
+                print("")
+            return response
+    except: #Exception as e:
+        #print("Error")
+        return #f"Error: {e}"
+gui_ = None
+def gui():
+    global voltage_canvas, gui_, vlight
+    global v_input, v_button, cpos_input, c_button, current_canvas, clight, outp_off_button
+    global outp_on_button, output_canvas, output_label, output_light, cneg_input
+    if gui_ is None:
+        gui_ = tk.Toplevel()
+        gui_.title("Delta Power Supply Control")
+
+        label = tk.Label(gui_, text = "")
+        label.grid(row = 1, column = 2, columnspan=2, pady = 10)
+
+        voltage_canvas = tk.Canvas(gui_, width = 26, height = 26)
+        voltage_canvas.grid(row = 3, column = 5)
+        vlight = voltage_canvas.create_oval(2,2,25,25, fill = "gray")
+
+        v_input = ttk.Entry(gui_)
+        v_input.grid(row = 3, column = 1, columnspan=2, pady = 2)
+
+        v_button = ttk.Button(gui_, text = "Enter Voltage", command = voltage)
+        v_button.grid(row = 3, column = 3, columnspan=2, pady = 2)
+
+        cpos_label = tk.Label(gui_, text="Pos Current Lim:")
+        cpos_label.grid(row = 4, column = 1, columnspan=1, pady = 2)
+
+        #cneg_label = tk.Label(gui_, text="Negative Current Lim:")
+        #cneg_label.grid(row = 4, column = 4, columnspan=1, pady = 2)
+
+        cpos_input = ttk.Entry(gui_)
+        cpos_input.grid(row = 5, column = 1, columnspan=1, pady = 2)
+
+        #cneg_input = ttk.Entry(gui_)
+        #cneg_input.grid(row = 5, column = 4, columnspan=1, pady = 2)  
+
+        c_button = ttk.Button(gui_, text = "Enter Current", command = current)
+        c_button.grid(row = 5, column = 6, columnspan=2, pady = 2)
+
+        current_canvas = tk.Canvas(gui_, width = 26, height = 26)
+        current_canvas.grid(row = 5, column = 8)
+        clight = current_canvas.create_oval(2, 2, 25, 25, fill = "gray")
+        
+        space1 = tk.Label(gui_, text = "")
+        space1.grid(row = 6, column=1, columnspan=2, pady = 10)
+
+        outp_on_button = ttk.Button(gui_, text = "OUTPUT ON", command = output_on)
+        outp_on_button.grid(row = 7, column=1, columnspan=2, pady = 2)
+
+        outp_off_button = ttk.Button(gui_, text = "OUTPUT OFF", command = output_off)
+        outp_off_button.grid(row = 7, column=3, columnspan=2, pady = 2)
+
+        output_label = ttk.Label(gui_, text = "OUTPUT Status:")
+        output_label.grid(row = 8, column = 1, columnspan=2, pady = 2)
+
+        output_canvas = tk.Canvas(gui_, width = 30, height = 30)
+        output_canvas.grid(row = 8, column = 4)
+
+        output_light = output_canvas.create_oval(2, 2, 29, 29, fill = "gray")
+        gui_.protocol("WM_DELETE_WINDOW", on_close)
+
+def connect():
+    global ip
+    ip = str(ip_address.get())
+    try: 
+        connec = send_scpi_command(ip, port, "*IDN?")
+        #print(f"Connected to {connec}")
+        if connec:
+            connection_canvas.itemconfig(connection_light, fill = "green")
+            gui()
+        else:
+            print(f"No connection to device {ip}.\nTry changing the power supply ip address")
+            connection_canvas.itemconfig(connection_light, fill = "orange")
+            connection_Label.config(text = "Is the ip address correct\nand plugged in?")
+    except: 
+        connection_canvas.itemconfig(connection_light, fill = "red")
+        print("Connection Issue.\nTry changing the power supply ip address")
+
+def voltage():
+    global vset
+    print("Setting Voltage Limit")
+    v_limit_pos =20
+    try: 
+        vset = float(v_input.get())
+        if 0<vset< v_limit_pos:
+            send_scpi_command(ip,port,f"VOLT {vset}V")
+            voltage_canvas.itemconfig(vlight, fill = "green")
+            print(f"Voltage is set to {vset}")
+        else: 
+            voltage_canvas.itemconfig(vlight, fill = "red")
+    except: 
+        print("Issue setting voltage")
+
+def current():
+    print("Setting Current Limit")
+    c_limit_pos =100    
+    try: 
+        csetp = float(cpos_input.get())
+        if 0<csetp< c_limit_pos: 
+            send_scpi_command(ip,port,f"CURR {csetp}A")
+            current_canvas.itemconfig(clight, fill = "green")
+            print(f"Current is set to {csetp}")
+        else: 
+            current_canvas.itemconfig(clight, fill = "red")
+    except: 
+        print("Issue Setting current")
+
+def output_on():
+    vinit = 5
+    vfinal = vset
+    vsett = vfinal-vinit
+    duration = 15
+    steps = 25
+    if output_on is not True:
+        try:
+            send_scpi_command(ip, port, f"VOLT {vinit}V")
+            time.sleep(0.1*duration/steps)
+            send_scpi_command(ip, port, "OUTP ON")
+            time.sleep(0.1*duration/steps)
+            vset1 = vinit + 2*vsett/steps
+            send_scpi_command(ip, port, f"VOLT {vset1}V")
+            time.sleep(0.1*duration/steps)
+            vset2 = vinit + 4*vsett/steps
+            send_scpi_command(ip, port, f"VOLT {vset2}V")
+            time.sleep(0.1*duration/steps)
+            vset3 = vinit + 6*vsett/steps
+            send_scpi_command(ip, port, f"VOLT {vset3}V")
+            time.sleep(0.5*duration/steps)
+            vset4 = vinit + 7*vsett/steps
+            send_scpi_command(ip, port, f"VOLT {vset4}V")
+            time.sleep(1*duration/steps)
+            vset5 = vinit + 8*vsett/steps
+            send_scpi_command(ip, port, f"VOLT {vset5}V")
+            time.sleep(0.5*duration/steps)
+            vset6 = vinit + 10*vsett/steps
+            send_scpi_command(ip, port, f"VOLT {vset6}V")
+            time.sleep(0.1*duration/steps)
+            vset7 = vinit + 12*vsett/steps
+            send_scpi_command(ip, port, f"VOLT {vset7}V")
+            time.sleep(0.1*duration/steps)
+            vset8 = vinit + 14*vsett/steps
+            send_scpi_command(ip, port, f"VOLT {vset8}V")
+            time.sleep(0.1*duration/steps)
+            vset9 = vinit + 16*vsett/steps
+            send_scpi_command(ip, port, f"VOLT {vset9}V")
+            time.sleep(0.1*duration/steps)
+            vset10 = vinit + 18*vsett/steps
+            send_scpi_command(ip, port, f"VOLT {vset10}V")
+            time.sleep(0.1*duration/steps)
+            vset11 = vinit + 20*vsett/steps
+            send_scpi_command(ip, port, f"VOLT {vset11}V")
+            time.sleep(0.1*duration/steps)
+            vset12 = vinit + 22*vsett/steps
+            send_scpi_command(ip, port, f"VOLT {vset12}V")
+            time.sleep(0.1*duration/steps)
+            vset13 = vinit + 25*vsett/steps
+            send_scpi_command(ip, port, f"VOLT {vset13}V")
+            print("OUTPUT is ON and at operating voltage")
+            output_canvas.itemconfig(connection_light, fill = "green")
+            return True
+        except: 
+            output_canvas.itemconfig(connection_light, fill = "green")
+            print("Output is not ON. Issue has occurred")
+            return False
+    else: 
+        print("Output is already ON. Try turning it off first")
+
+def output_off():
+    try: 
+        send_scpi_command(ip, port, "OUTP OFF")
+        send_scpi_command(ip, port, "VOLT 0A")
+        send_scpi_command(ip, port, "CURR 0A")
+        output_canvas.itemconfig(connection_light, fill = "red")
+        current_canvas.itemconfig(clight, fill = "red")
+        voltage_canvas.itemconfig(vlight, fill = "red")
+        return True
+    except: 
+        #output_on()
+        return
+
+def on_close():
+    global device
+    response = messagebox.askyesno("Exit Confirmation", "Are you sure you want to exit?\nThis will turn the PS output off")
+    if response:
+        print("Closing GUI")
+        if gui_:
+            output_off()
+            gui_.destroy()
+            launch.destroy()
+        else: 
+            launch.destroy()    
+    else: 
+        print("Window closing canceled")
+
+launch = tk.Tk()
+launch.title("Delta Electronica Interface")
+launch.geometry("330x300")
+space = tk.Label(launch, text = " ")
+space.grid(row = 1, column=3, columnspan=2, pady = 10)
+
+ip_label = tk.Label(launch, text = "Enter IP Address of Device")
+ip_label.grid(row = 4, column = 1, columnspan=2, pady = 10)
+
+ip_address = ttk.Entry(launch)
+ip_address.grid(row = 4, column=3, columnspan=2, pady = 10)
+
+ps_label = ttk.Label(launch, text = "  INITIALIZE POWER SUPPLY",font=20)
+ps_label.grid(row = 2, column = 2, columnspan=2, pady = 10)
+
+connection_button = ttk.Button(launch, text = "Connect", command = connect)
+connection_button.grid(row = 5, column = 1, columnspan= 2, pady = 2)
+
+connection_canvas = tk.Canvas(launch, width = 36, height = 36)
+connection_canvas.grid(row = 5, column = 3)
+connection_light = connection_canvas.create_oval(2, 2, 35, 35, fill = "gray")
+connection_Label = tk.Label(launch, text = " ")
+connection_Label.grid(row = 7, column= 2, columnspan=2, pady = 10)
+
+launch.protocol("WM_DELETE_WINDOW", on_close)
+launch.mainloop()
+
