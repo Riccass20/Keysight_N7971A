@@ -1,0 +1,211 @@
+#Control for Keysight power supply for HL Transient Testing 
+
+import tkinter as tk
+from tkinter import ttk
+from tkinter import messagebox
+import socket
+import os 
+from PIL import Image, ImageTk
+ip = "169.254.69.79"
+port = "5025"
+
+#This function will send SCPI commands to the power supply via SOCKET connection. All of the SCPI commands will reference this function.
+def send_scpi_command(ip, port, command):
+    global s
+    """Send an SCPI command over a socket connection."""
+    try:
+        with socket.create_connection((ip, port), timeout=0.1) as s:
+            s.sendall(command.encode() + b'\n')  # Send command with newline
+            response = s.recv(1024).decode().strip()  #Read response
+            if response:
+                print(response)
+            else:
+                print("")
+            return response
+    except: #Exception as e:
+        #print("Error")
+        return #f"Error: {e}"
+    
+#This defines the second GUI as none so that it does not occur more than once or not at all. Defining whether it exists or not. 
+gui_ = None
+
+#This is the second GUI - the one that actually controls the power supply settings and output. 
+def gui():
+    global voltage_canvas, gui_, vlight
+    global v_input, v_button, cpos_input, c_button, current_canvas, clight, outp_off_button
+    global outp_on_button, output_canvas, output_label, output_light
+    if gui_ is None:
+        gui_ = tk.Toplevel()
+        gui_.title("Keysight Power Supply Control")
+        
+        label = tk.Label(gui_, image = photo)
+        label.grid(row = 1, column = 2, columnspan=7, pady = 10)
+
+        voltage_canvas = tk.Canvas(gui_, width = 26, height = 26)
+        voltage_canvas.grid(row = 3, column = 5)
+        vlight = voltage_canvas.create_oval(2,2,25,25, fill = "gray")
+        
+        v_label = tk.Label(gui_, text="Voltage Lim:")
+        v_label.grid(row = 2, column = 3, columnspan=1, pady = 2)
+
+        v_input = ttk.Entry(gui_)
+        v_input.grid(row = 3, column = 3, columnspan=1, pady = 2)
+
+        v_button = ttk.Button(gui_, text = "Enter Voltage", command = voltage)
+        v_button.grid(row = 3, column = 4, columnspan=1, pady = 2)
+
+        cpos_label = tk.Label(gui_, text="Current Lim:")
+        cpos_label.grid(row = 4, column = 3, columnspan=1, pady = 2)
+
+        cpos_input = ttk.Entry(gui_)
+        cpos_input.grid(row = 5, column = 3, columnspan=1, pady = 2) 
+
+        c_button = ttk.Button(gui_, text = "Enter Current", command = current)
+        c_button.grid(row = 5, column = 4, columnspan=1, pady = 2)
+
+        current_canvas = tk.Canvas(gui_, width = 26, height = 26)
+        current_canvas.grid(row = 5, column = 5)
+        clight = current_canvas.create_oval(2, 2, 25, 25, fill = "gray")
+        
+        space1 = tk.Label(gui_, text = "")
+        space1.grid(row = 6, column=1, columnspan=2, pady = 10)
+
+        outp_on_button = ttk.Button(gui_, text = "OUTPUT ON", command = output_on)
+        outp_on_button.grid(row = 7, column=3, columnspan=1, pady = 2)
+
+        outp_off_button = ttk.Button(gui_, text = "OUTPUT OFF", command = output_off)
+        outp_off_button.grid(row = 7, column=4, columnspan=1, pady = 2)
+
+        output_label = ttk.Label(gui_, text = "OUTPUT Status:")
+        output_label.grid(row = 8, column = 3, columnspan=1, pady = 2)
+
+        output_canvas = tk.Canvas(gui_, width = 30, height = 30)
+        output_canvas.grid(row = 8, column = 4)
+
+        output_light = output_canvas.create_oval(2, 2, 29, 29, fill = "gray")
+        gui_.protocol("WM_DELETE_WINDOW", on_close)
+
+#This is the function that establishes connection to the power supply. It sends a *IDN? query to the supply and it will return with the make and model number along with
+#any other identity information. 
+def connect():
+    try: 
+        connec = send_scpi_command(ip, port, "*IDN?")
+        #print(f"Connected to {connec}")
+        if connec:
+            connection_canvas.itemconfig(connection_light, fill = "green")
+            gui()
+            print("If you have any questions or concerns contact Eric Cassiday.\nIf your concern is about how this looks that is tough luck.")
+        else:
+            print(f"No connection to device {ip}.\nTry changing the power supply ip address")
+            connection_canvas.itemconfig(connection_light, fill = "orange")
+            connection_Label.config(text = "Is the ip address correct and plugged in?")
+    except: 
+        connection_canvas.itemconfig(connection_light, fill = "red")
+        print("Connection Issue.\nTry changing the power supply ip address")
+
+#This will set the voltage of the power supply to a user input value. 
+def voltage():
+    global vset
+    print("Setting Voltage Limit")
+    v_limit_pos =20
+    try: 
+        vset = float(v_input.get())
+        if 0<vset< v_limit_pos:
+            send_scpi_command(ip,port,f"VOLT {vset}V")
+            voltage_canvas.itemconfig(vlight, fill = "green")
+            print(f"Voltage is set to {vset}")
+        else: 
+            voltage_canvas.itemconfig(vlight, fill = "red")
+    except: 
+        print("Issue setting voltage")
+
+#Same as the voltage function but for current. 
+def current():
+    print("Setting Current Limit")
+    c_limit_pos =50    
+    try: 
+        csetp = float(cpos_input.get())
+        if 0<csetp< c_limit_pos: 
+            send_scpi_command(ip,port,f"CURR {csetp}A")
+            current_canvas.itemconfig(clight, fill = "green")
+            print(f"Current is set to {csetp}")
+        else: 
+            current_canvas.itemconfig(clight, fill = "red")
+    except: 
+        print("Issue Setting current")
+
+#This function turns the output of the power supply on. Setting the voltage first then enabling the output. 
+def output_on():
+
+    if output_on is not True:
+        try:
+            send_scpi_command(ip, port, f"VOLT {vset}V")
+            send_scpi_command(ip, port, "OUTP ON")
+            print("OUTPUT is ON and at operating voltage")
+            output_canvas.itemconfig(output_light, fill = "green")
+            return True
+        except: 
+            output_canvas.itemconfig(output_light, fill = "orange")
+            print("Output is not ON. Issue has occurred")
+            return False
+    else: 
+        print("Output is already ON. Try turning it off first")
+
+#This will disable the output of the power supply and set the voltage/current settings to 0. 
+def output_off():
+    try: 
+        send_scpi_command(ip, port, "OUTP OFF")
+        send_scpi_command(ip, port, "VOLT 0A")
+        send_scpi_command(ip, port, "CURR 0A")
+        output_canvas.itemconfig(output_light, fill = "red")
+        print("Output is off")
+        return True
+    except: 
+        #output_on()
+        return
+
+#this will shut the output of the power supply off and turn all settings to 0 if either GUI is closed. 
+def on_close():
+    global device
+    response = messagebox.askyesno("Exit Confirmation", "Are you sure you want to exit?\nThis will turn the PS output off")
+    if response:
+        print("Closing GUI")
+        if gui_:
+            output_off()
+            gui_.destroy()
+            launch.destroy()
+        else: 
+            launch.destroy()    
+    else: 
+        print("Window closing canceled")
+
+#This is the Connection GUI. Will require user to verify the IP address of the supply. 
+launch = tk.Tk()
+launch.title("Keysight PS Interface")
+
+#This imports the HL Mechatronics Logo
+img_name = "HL Mechatronics CI single.jpg"
+img_path= os.path.join(os.getcwd(), img_name)
+img = Image.open(img_path)
+photo=ImageTk.PhotoImage(img)
+photo_ = tk.Label(launch, image = photo)
+photo_.grid(row = 1, column=1, columnspan=4, pady = 10)
+
+ip_label = tk.Label(launch, text = "Verify IP Address of Device")
+ip_label.grid(row = 4, column = 1, columnspan=1, pady = 10)
+
+ip_address = ttk.Label(text="169.254.69.79")
+ip_address.grid(row = 4, column=2, columnspan=1, pady = 10)
+
+connection_button = ttk.Button(launch, text = "Connect", command = connect)
+connection_button.grid(row = 5, column = 1, columnspan= 1, pady = 2)
+
+connection_canvas = tk.Canvas(launch, width = 36, height = 36)
+connection_canvas.grid(row = 5, column = 2)
+connection_light = connection_canvas.create_oval(2, 2, 35, 35, fill = "gray")
+connection_Label = tk.Label(launch, text = " ")
+connection_Label.grid(row = 7, column= 1, columnspan=2, pady = 10)
+
+launch.protocol("WM_DELETE_WINDOW", on_close)
+launch.mainloop()
+
